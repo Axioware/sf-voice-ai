@@ -1,0 +1,33 @@
+# SF Voice AI — System Requirements
+# This is a Node.js/Electron desktop app. npm handles JS dependencies (see package.json).
+# The items below are system-level prerequisites.
+
+# ── Runtime ──────────────────────────────────────────────────────────────────
+Node.js >= 18.0.0        # LTS recommended; Electron 28 requires Node 18+
+npm >= 9.0.0             # bundled with Node 18+
+
+# ── Electron (installed via npm) ─────────────────────────────────────────────
+electron >= 28.0.0       # see package.json devDependencies
+
+# ── Audio (Linux) ────────────────────────────────────────────────────────────
+pulseaudio               # or pipewire-pulse — required for microphone capture
+sox                      # Sound eXchange; used by node-record-lpcm16 for audio I/O
+                         # Install: sudo apt install pulseaudio sox
+                         #      or: sudo apt install pipewire-pulse sox
+
+# ── Audio (macOS) ────────────────────────────────────────────────────────────
+# sox via Homebrew: brew install sox
+# No extra audio daemon needed — CoreAudio is used natively
+
+# ── Audio (Windows) ──────────────────────────────────────────────────────────
+# sox for Windows: https://sourceforge.net/projects/sox/
+# Add sox to PATH after installation
+
+# ── API Keys (set in .env — copy from .env.example) ─────────────────────────
+ANTHROPIC_API_KEY        # https://console.anthropic.com
+DEEPGRAM_API_KEY         # https://console.deepgram.com
+
+# ── Quick Start ──────────────────────────────────────────────────────────────
+# 1. cp .env.example .env  (and fill in your API keys)
+# 2. npm install
+# 3. npm start
