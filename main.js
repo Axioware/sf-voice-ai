@@ -17,8 +17,9 @@ let deepgramService = null
 let claudeService   = null
 let salesforceService = null
 
-let isCallActive  = false
-let conversation  = []        // [{ role: 'lead'|'agent', text, time }]
+let isCallActive      = false
+let conversation      = []    // [{ role: 'lead'|'agent', text, time }]
+let leadContext       = null  // formatted string from Salesforce lead lookup
 let llmDebounceTimer  = null
 const LLM_DEBOUNCE_MS = 600   // 600ms feels natural — fast but not jumpy
 
@@ -71,6 +72,9 @@ function syncEnvToStore() {
     ['deepgramApiKey',  process.env.DEEPGRAM_API_KEY],
     ['anthropicApiKey', process.env.ANTHROPIC_API_KEY],
     ['salesforceUrl',   process.env.SF_INSTANCE_URL],
+    ['sfClientId',      process.env.SF_CLIENT_ID],
+    ['sfClientSecret',  process.env.SF_CLIENT_SECRET],
+    ['sfRefreshToken',  process.env.SF_REFRESH_TOKEN],
   ]
   pairs.forEach(([key, val]) => {
     if (val && val.trim()) store.set(key, val.trim())
@@ -114,7 +118,10 @@ function handleTranscript({ text, isFinal, channel }) {
 }
 
 function handleUtteranceEnd({ channel }) {
-  // Debounce — wait for natural pause before calling LLM
+  // Only trigger LLM suggestion when the LEAD finishes speaking
+  // Agent utterances are added to conversation for context but don't trigger suggestions
+  if (channel !== 'lead') return
+
   clearTimeout(llmDebounceTimer)
   llmDebounceTimer = setTimeout(async () => {
     if (conversation.length === 0) return
@@ -129,7 +136,7 @@ async function callLLM() {
   }
   sendToRenderer('llm-thinking', true)
   try {
-    const reply = await claudeService.getSuggestion({ conversation })
+    const reply = await claudeService.getSuggestion({ conversation, leadContext })
     sendToRenderer('llm-reply', reply)
   } catch (err) {
     sendToRenderer('llm-error', err.message)
@@ -147,6 +154,7 @@ ipcMain.handle('start-call', async () => {
   try {
     isCallActive = true
     conversation = []
+    leadContext  = null
 
     await deepgramService.connect(config)
 
@@ -194,11 +202,58 @@ ipcMain.handle('test-deepgram',    async () => {
   if (!key) return { success: false, error: 'No API key found' }
   return deepgramService.testConnection(key)
 })
+ipcMain.handle('test-salesforce', async () => {
+  if (!salesforceService.isConfigured()) {
+    return { success: false, error: 'Salesforce not configured. Fill in all SF fields in Settings.' }
+  }
+  return salesforceService.testConnection()
+})
+
 ipcMain.handle('test-anthropic',   async () => {
   const key = getCurrentConfig().anthropicApiKey
   if (!key) return { success: false, error: 'No API key found' }
   return claudeService.testConnection(key)
 })
+// Called from renderer when Salesforce CTI fires with a phone number
+ipcMain.handle('lookup-lead', async (_, phoneNumber) => {
+  if (!phoneNumber) return { success: false, error: 'No phone number provided' }
+  if (!salesforceService.isConfigured()) {
+    return { success: false, error: 'Salesforce not configured in Settings' }
+  }
+
+  try {
+    sendToRenderer('lead-lookup-status', { status: 'searching', phone: phoneNumber })
+    const record = await salesforceService.getLeadByPhone(phoneNumber)
+
+    if (!record) {
+      sendToRenderer('lead-lookup-status', { status: 'not-found', phone: phoneNumber })
+      return { success: false, error: `No contact found for ${phoneNumber}` }
+    }
+
+    // Format and store as context for Claude
+    leadContext = salesforceService.formatLeadContext(record)
+
+    // Send lead info to UI to display
+    sendToRenderer('lead-found', {
+      name:     `${record.FirstName || ''} ${record.LastName || ''}`.trim(),
+      company:  record.Account?.Name || record.Company || '',
+      title:    record.Title || '',
+      phone:    phoneNumber,
+      type:     record._type
+    })
+
+    return { success: true }
+  } catch (err) {
+    sendToRenderer('lead-lookup-status', { status: 'error', error: err.message })
+    return { success: false, error: err.message }
+  }
+})
+
+// Manual phone number entry from UI
+ipcMain.handle('set-phone-number', async (_, phoneNumber) => {
+  return ipcMain.emit('lookup-lead', null, phoneNumber)
+})
+
 ipcMain.handle('clear-chat',       () => {
   conversation = []
   sendToRenderer('chat-cleared')
@@ -217,7 +272,10 @@ function getCurrentConfig() {
   return {
     deepgramApiKey:  store.get('deepgramApiKey',  process.env.DEEPGRAM_API_KEY  || ''),
     anthropicApiKey: store.get('anthropicApiKey', process.env.ANTHROPIC_API_KEY || ''),
-    salesforceUrl:   store.get('salesforceUrl',   ''),
+    salesforceUrl:  store.get('salesforceUrl',  process.env.SF_INSTANCE_URL  || ''),
+    sfClientId:     store.get('sfClientId',     process.env.SF_CLIENT_ID     || ''),
+    sfClientSecret: store.get('sfClientSecret', process.env.SF_CLIENT_SECRET || ''),
+    sfRefreshToken: store.get('sfRefreshToken', process.env.SF_REFRESH_TOKEN || ''),
     systemPrompt:    store.get('systemPrompt',    getDefaultPrompt()),
     audioDevice:     store.get('audioDevice',     'default'),
     language:        store.get('language',        'en-US'),
@@ -226,19 +284,39 @@ function getCurrentConfig() {
 }
 
 function getDefaultPrompt() {
-  return `You are an AI sales assistant listening to a live call between a sales agent and a lead.
+  return `You are a real-time AI coach sitting beside a sales agent during a live call.
 
-You receive the full conversation transcript with two roles:
-- "Lead" — the potential customer speaking through the phone/speaker
-- "Agent" — the sales representative speaking into their microphone
+ROLES IN TRANSCRIPT:
+- 🔵 Lead = potential customer (the person the agent is trying to convert)
+- 🟢 Agent = sales representative (the person you are helping)
 
-Your job:
-- Analyse the latest exchange and give the agent a SHORT, ACTIONABLE suggestion
-- Identify objections, buying signals, questions, or hesitation from the lead
-- Suggest exactly what the agent should say or do next
-- Be concise — under 80 words, bullet points if multiple suggestions
-- Never repeat the transcript back
-- If not enough context yet, say "Listening..."`
+YOUR ONLY JOB:
+After the lead finishes speaking, tell the agent exactly what to say or do next.
+
+RESPONSE RULES:
+- Max 60 words — the agent is reading this live, keep it short
+- Lead with the single most important action first
+- Use bullet points only if there are 2-3 distinct actions needed
+- Never repeat what was just said
+- Never explain your reasoning — just give the suggestion
+- If the lead asked a direct question, give the agent the exact answer or talking point
+- If the lead expressed an objection, name it and give one rebuttal
+- If the lead showed buying intent, tell the agent to move toward closing
+
+DETECT AND RESPOND TO:
+- Price objection → acknowledge + pivot to value or offer payment plan
+- Budget concern → ask about timeline or suggest smaller entry package
+- Competitor mention → highlight unique differentiators, never badmouth
+- Feature question → answer directly + connect to their specific pain point
+- Hesitation/silence → suggest an open-ended question to re-engage
+- Buying signal (interest, asking about next steps) → guide agent toward close
+- Request for discount → hold value first, offer discount only as last resort
+
+TONE:
+Professional, confident, empathetic. The agent should sound helpful not pushy.
+
+If transcript has less than one full sentence from the lead, respond with only:
+"Listening..."`
 }
 
 function sendToRenderer(channel, data) {

@@ -39,7 +39,7 @@
         </div>
       </div>
 
-      <!-- Channel indicators -->
+      <!-- Channel indicators + Lead info bar -->
       <div class="channels" id="channels">
         <div class="channel-pill lead">
           <span class="ch-dot"></span>
@@ -49,6 +49,23 @@
           <span class="ch-dot"></span>
           <span>Agent (mic)</span>
         </div>
+      </div>
+
+      <!-- Lead info bar -->
+      <div class="lead-bar" id="lead-bar">
+        <div class="lead-info hidden" id="lead-info">
+          <span class="lead-avatar" id="lead-avatar">?</span>
+          <div class="lead-details">
+            <span class="lead-name" id="lead-name">Unknown Lead</span>
+            <span class="lead-meta" id="lead-meta"></span>
+          </div>
+          <span class="lead-badge" id="lead-badge">SF</span>
+        </div>
+        <div class="lead-phone-row" id="lead-phone-row">
+          <input type="text" id="phone-input" placeholder="Enter lead phone number..." />
+          <button class="lookup-btn" id="btn-lookup">🔍 Lookup</button>
+        </div>
+        <span class="lookup-status hidden" id="lookup-status"></span>
       </div>
 
       <!-- Chat window -->
@@ -139,6 +156,37 @@
               <option value="pt">Portuguese</option>
             </select>
           </label>
+        </section>
+
+        <section class="settings-section">
+          <h3>Salesforce — Lead Lookup</h3>
+          <span class="field-hint">Fetches lead/contact info by phone number during calls to improve AI suggestions</span>
+          <label>Instance URL
+            <input type="text" id="s-sf-url" placeholder="https://yourorg.my.salesforce.com" />
+          </label>
+          <label>Client ID (Connected App)
+            <div class="input-row">
+              <input type="password" id="s-sf-client-id" placeholder="Connected App Client ID" />
+              <button class="eye-btn" id="toggle-sf-client-id">👁</button>
+            </div>
+          </label>
+          <label>Client Secret
+            <div class="input-row">
+              <input type="password" id="s-sf-client-secret" placeholder="Connected App Client Secret" />
+              <button class="eye-btn" id="toggle-sf-client-secret">👁</button>
+            </div>
+          </label>
+          <label>Refresh Token
+            <div class="input-row">
+              <input type="password" id="s-sf-refresh-token" placeholder="SF_REFRESH_TOKEN" />
+              <button class="eye-btn" id="toggle-sf-refresh-token">👁</button>
+            </div>
+            <span class="field-hint">Get from your Connected App OAuth flow</span>
+          </label>
+          <div class="input-row" style="margin-top:4px">
+            <button class="test-btn" id="test-salesforce" style="flex:1">Test Connection</button>
+          </div>
+          <span class="test-result" id="sf-test-result"></span>
         </section>
 
         <section class="settings-section">

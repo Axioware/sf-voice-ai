@@ -6,10 +6,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stopCall:     () => ipcRenderer.invoke('stop-call'),
   clearChat:    () => ipcRenderer.invoke('clear-chat'),
 
+  // Salesforce
+  testSalesforce: () => ipcRenderer.invoke('test-salesforce'),
+
+  // Lead lookup
+  lookupLead:   (phone) => ipcRenderer.invoke('lookup-lead', phone),
+
   // Settings
   getSettings:      () => ipcRenderer.invoke('get-settings'),
   saveSettings: (s) => ipcRenderer.invoke('save-settings', s),
   testDeepgram:     () => ipcRenderer.invoke('test-deepgram'),
+  testSalesforce:   () => ipcRenderer.invoke('test-salesforce'),
   testAnthropic:    () => ipcRenderer.invoke('test-anthropic'),
   getAudioDevices:  () => ipcRenderer.invoke('get-audio-devices'),
 
@@ -32,6 +39,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSFSaved:           (cb) => ipcRenderer.on('sf-saved',           (_, d) => cb(d)),
   onNavigate:          (cb) => ipcRenderer.on('navigate',           (_, d) => cb(d)),
   onVirtualSinkReady:  (cb) => ipcRenderer.on('virtual-sink-ready', (_, d) => cb(d)),
+  onLeadFound:         (cb) => ipcRenderer.on('lead-found',         (_, d) => cb(d)),
+  onLeadLookupStatus:  (cb) => ipcRenderer.on('lead-lookup-status', (_, d) => cb(d)),
   onAutoRouteResult:   (cb) => ipcRenderer.on('auto-route-result',  (_, d) => cb(d)),
 
   removeAllListeners: (ch) => ipcRenderer.removeAllListeners(ch)

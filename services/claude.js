@@ -17,9 +17,10 @@ class ClaudeService {
     return !!this.client && !!this.config.anthropicApiKey
   }
 
-  //  Get suggestion based on full conversation 
-  // conversation = [{ role: 'lead'|'agent', text, time }]
-  async getSuggestion({ conversation }) {
+  // ── Get suggestion based on full conversation + lead context ────────────
+  // conversation  = [{ role: 'lead'|'agent', text, time }]
+  // leadContext   = formatted string from salesforce.formatLeadContext()
+  async getSuggestion({ conversation, leadContext }) {
     if (!this.client) {
       this._initClient(this.config.anthropicApiKey)
       if (!this.client) throw new Error('Anthropic client not initialised. Check API key in Settings.')
@@ -30,7 +31,12 @@ class ClaudeService {
       .map(m => `${m.role === 'lead' ? '🔵 Lead' : '🟢 Agent'}: ${m.text}`)
       .join('\n')
 
-    const userMessage = `## Live call transcript\n\n${transcript}\n\n---\nBased on this conversation, what should the agent say or do next?`
+    // Build user message — include lead context if available
+    const contextSection = leadContext
+      ? `${leadContext}\n\n`
+      : ''
+
+    const userMessage = `${contextSection}## Live Call Transcript\n\n${transcript}\n\n---\nBased on this conversation and the lead information above, what should the agent say or do next?`
 
     const response = await this.client.messages.create({
       model:      'claude-haiku-4-5-20251001',  // fastest Claude model — lowest latency
@@ -83,19 +89,39 @@ class ClaudeService {
   }
 
   _defaultSystemPrompt() {
-    return `You are an AI sales assistant listening to a live call between a sales agent and a lead.
+    return `You are a real-time AI coach sitting beside a sales agent during a live call.
 
-You receive the full conversation transcript with two roles:
-- "Lead" — the potential customer speaking through the phone/speaker
-- "Agent" — the sales representative speaking into their microphone
+ROLES IN TRANSCRIPT:
+- 🔵 Lead = potential customer (the person the agent is trying to convert)
+- 🟢 Agent = sales representative (the person you are helping)
 
-Your job:
-- Analyse the latest exchange and give the agent a SHORT, ACTIONABLE suggestion
-- Identify objections, buying signals, questions, or hesitation from the lead
-- Suggest exactly what the agent should say or do next
-- Be concise — under 80 words, bullet points if multiple suggestions
-- Never repeat the transcript back
-- If not enough context yet, say "Listening..."`
+YOUR ONLY JOB:
+After the lead finishes speaking, tell the agent exactly what to say or do next.
+
+RESPONSE RULES:
+- Max 60 words — the agent is reading this live, keep it short
+- Lead with the single most important action first
+- Use bullet points only if there are 2-3 distinct actions needed
+- Never repeat what was just said
+- Never explain your reasoning — just give the suggestion
+- If the lead asked a direct question, give the agent the exact answer or talking point
+- If the lead expressed an objection, name it and give one rebuttal
+- If the lead showed buying intent, tell the agent to move toward closing
+
+DETECT AND RESPOND TO:
+- Price objection → acknowledge + pivot to value or offer payment plan
+- Budget concern → ask about timeline or suggest smaller entry package
+- Competitor mention → highlight unique differentiators, never badmouth
+- Feature question → answer directly + connect to their specific pain point
+- Hesitation/silence → suggest an open-ended question to re-engage
+- Buying signal (interest, asking about next steps) → guide agent toward close
+- Request for discount → hold value first, offer discount only as last resort
+
+TONE:
+Professional, confident, empathetic. The agent should sound helpful not pushy.
+
+If transcript has less than one full sentence from the lead, respond with only:
+"Listening..."`
   }
 }
 

@@ -73,13 +73,25 @@
       $('s-system-prompt').value = getDefaultPrompt()
     })
     $('toggle-deepgram').addEventListener('click',  () => toggleKey('s-deepgram-key',  'toggle-deepgram'))
+    $('toggle-sf-client-id').addEventListener('click',     () => toggleKey('s-sf-client-id',     'toggle-sf-client-id'))
+    $('toggle-sf-client-secret').addEventListener('click', () => toggleKey('s-sf-client-secret', 'toggle-sf-client-secret'))
+    $('toggle-sf-refresh-token').addEventListener('click', () => toggleKey('s-sf-refresh-token', 'toggle-sf-refresh-token'))
     $('toggle-anthropic').addEventListener('click', () => toggleKey('s-anthropic-key', 'toggle-anthropic'))
 
     $('test-deepgram').addEventListener('click', async () => {
       await runTest('test-deepgram', 'dg-test-result', () => api.testDeepgram())
     })
+    $('test-salesforce').addEventListener('click', async () => {
+      await runTest('test-salesforce', 'sf-test-result', () => api.testSalesforce())
+    })
     $('test-anthropic').addEventListener('click', async () => {
       await runTest('test-anthropic', 'an-test-result', () => api.testAnthropic())
+    })
+
+    // Lead phone lookup
+    $('btn-lookup').addEventListener('click', lookupLead)
+    $('phone-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') lookupLead()
     })
 
     document.addEventListener('click', e => {
@@ -155,6 +167,25 @@
 
     api.onNavigate(page => { if (page === 'settings') showView('settings') })
 
+    api.onLeadFound((data) => {
+      showLeadInfo(data)
+    })
+
+    api.onLeadLookupStatus(({ status, phone, error }) => {
+      const el = $('lookup-status')
+      el.classList.remove('hidden', 'searching', 'found', 'not-found', 'error')
+      if (status === 'searching') {
+        el.className = 'lookup-status searching'
+        el.textContent = `🔍 Searching for ${phone}...`
+      } else if (status === 'not-found') {
+        el.className = 'lookup-status not-found'
+        el.textContent = `No contact found for ${phone}`
+      } else if (status === 'error') {
+        el.className = 'lookup-status error'
+        el.textContent = `Error: ${error}`
+      }
+    })
+
     api.onVirtualSinkReady(({ sinkName }) => {
       setStatus('connecting', `Routing browser audio to ${sinkName}...`)
     })
@@ -166,6 +197,52 @@
         showRoutingGuide(sinkName)
       }
     })
+  }
+
+  // ── Lead lookup ───────────────────────────────────────────────────────────
+  async function lookupLead() {
+    const phone = $('phone-input').value.trim()
+    if (!phone) return
+
+    const btn = $('btn-lookup')
+    btn.disabled = true
+    btn.textContent = '...'
+
+    const result = await api.lookupLead(phone)
+
+    btn.disabled = false
+    btn.textContent = '🔍 Lookup'
+
+    if (!result.success) {
+      const el = $('lookup-status')
+      el.className = 'lookup-status error'
+      el.textContent = result.error
+      el.classList.remove('hidden')
+    }
+  }
+
+  function showLeadInfo(data) {
+    // Show lead card
+    const leadInfo = $('lead-info')
+    leadInfo.classList.remove('hidden')
+
+    // Set avatar initials
+    const initials = data.name
+      ? data.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+      : '?'
+    $('lead-avatar').textContent = initials
+
+    $('lead-name').textContent = data.name || 'Unknown'
+    $('lead-meta').textContent = [data.title, data.company].filter(Boolean).join(' · ')
+
+    // Update lookup status
+    const el = $('lookup-status')
+    el.className = 'lookup-status found'
+    el.textContent = `✓ ${data.type} found in Salesforce`
+    el.classList.remove('hidden')
+
+    // Clear phone input
+    $('phone-input').value = ''
   }
 
   // ── Chat bubbles ───────────────────────────────────────────────────────────
@@ -243,6 +320,10 @@
     $('s-deepgram-key').value  = s.deepgramApiKey  || ''
     $('s-anthropic-key').value = s.anthropicApiKey || ''
 
+    $('s-sf-url').value           = s.salesforceUrl  || ''
+    $('s-sf-client-id').value     = s.sfClientId     || ''
+    $('s-sf-client-secret').value = s.sfClientSecret || ''
+    $('s-sf-refresh-token').value = s.sfRefreshToken || ''
     $('s-system-prompt').value = s.systemPrompt     || getDefaultPrompt()
     $('s-language').value      = s.language         || 'en-US'
 
@@ -278,6 +359,10 @@
       deepgramApiKey:  $('s-deepgram-key').value.trim(),
       anthropicApiKey: $('s-anthropic-key').value.trim(),
 
+      salesforceUrl:  $('s-sf-url').value.trim(),
+      sfClientId:     $('s-sf-client-id').value.trim(),
+      sfClientSecret: $('s-sf-client-secret').value.trim(),
+      sfRefreshToken: $('s-sf-refresh-token').value.trim(),
       systemPrompt:    $('s-system-prompt').value.trim(),
       audioDevice:     $('s-audio-device').value,
       language:        $('s-language').value
