@@ -49,6 +49,7 @@ function createMainWindow() {
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
+
 function createTray() {
   const iconPath = path.join(__dirname, 'assets', 'tray-icon.png')
   const icon = nativeImage.createFromPath(iconPath)
@@ -148,7 +149,16 @@ async function callLLM() {
 // ── IPC handlers ──────────────────────────────────────────────────────────────
 ipcMain.handle('start-call', async () => {
   if (isCallActive) return { success: false, error: 'Call already active' }
+
+  // Re-init services with latest config from store before connecting
+  // This ensures keys saved via Settings are always picked up
+  initServices()
+
   const config = getCurrentConfig()
+
+  console.log('[start-call] deepgramApiKey present:', !!config.deepgramApiKey)
+  console.log('[start-call] key length:', config.deepgramApiKey?.length || 0)
+
   if (!config.deepgramApiKey) return { success: false, error: 'Deepgram API key not set. Go to Settings.' }
 
   try {
@@ -190,10 +200,16 @@ ipcMain.handle('stop-call', async () => {
 
 ipcMain.handle('get-settings',     () => getCurrentConfig())
 ipcMain.handle('save-settings',    (_, settings) => {
-  Object.entries(settings).forEach(([k, v]) => store.set(k, typeof v === 'string' ? v.trim() : v))
-  // Reinit only Claude/Deepgram clients with new API keys — don't reset audio device
-  claudeService   = new (require('./services/claude'))(getCurrentConfig())
-  deepgramService = new (require('./services/deepgram'))(getCurrentConfig())
+  // Save all settings — trim strings to remove accidental spaces/newlines from copy-paste
+  Object.entries(settings).forEach(([k, v]) => {
+    const val = typeof v === 'string' ? v.trim() : v
+    store.set(k, val)
+    console.log(`[save-settings] ${k}:`, k.includes('key') || k.includes('secret') || k.includes('token')
+      ? (val ? `set (${val.length} chars)` : 'empty')
+      : val)
+  })
+  // Reinit all services with updated config
+  initServices()
   return { success: true }
 })
 ipcMain.handle('get-audio-devices', async () => audioCapture?.listDevices() || [])
@@ -324,6 +340,22 @@ function sendToRenderer(channel, data) {
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
+// ── Single instance lock ─────────────────────────────────────────────────────
+// Prevents two copies of the app running at the same time
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    // Someone tried to open a second instance — focus the existing window
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+}
+
 app.whenReady().then(() => {
   createMainWindow()
   createTray()

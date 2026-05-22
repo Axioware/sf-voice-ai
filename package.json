@@ -28,12 +28,10 @@
     "appId": "com.yourcompany.sf-voice-ai",
     "productName": "SF Voice AI",
     "copyright": "Copyright © 2024",
-
     "directories": {
       "output": "dist",
       "buildResources": "assets"
     },
-
     "files": [
       "main.js",
       "preload.js",
@@ -47,48 +45,80 @@
       "!.env.*",
       "!.git/**"
     ],
-
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64"] },
-        { "target": "deb",      "arch": ["x64"] },
-        { "target": "rpm",      "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "assets/icon.png",
       "category": "Office",
       "description": "Salesforce Voice AI Assistant"
     },
-
     "win": {
       "target": [
-        { "target": "nsis",     "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "assets/icon.png"
     },
-
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "icon": "assets/icon.png",
       "category": "public.app-category.business"
     },
-
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },
-
     "appImage": {
       "artifactName": "SF-Voice-AI-${version}.AppImage"
     },
-
     "deb": {
       "artifactName": "SF-Voice-AI-${version}.deb",
-      "depends": ["pulseaudio-utils", "sox"]
+      "depends": [
+        "pulseaudio-utils",
+        "sox"
+      ]
     }
+  },
+  "author": {
+    "name": "Rauf",
+    "email": "abdulraufsiddiqui1999@gmail.com"
   }
 }

@@ -238,7 +238,9 @@
     // Update lookup status
     const el = $('lookup-status')
     el.className = 'lookup-status found'
-    el.textContent = `✓ ${data.type} found in Salesforce`
+    el.textContent = data.auto
+      ? `⚡ Auto-detected: ${data.type} found from Salesforce call`
+      : `✓ ${data.type} found in Salesforce`
     el.classList.remove('hidden')
 
     // Clear phone input
