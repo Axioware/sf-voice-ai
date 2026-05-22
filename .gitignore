@@ -1,22 +1,15 @@
 # Dependencies
 node_modules/
 
-# Environment variables (contains API keys — never commit)
+# Build output
+dist/
+
+# Environment variables — NEVER commit this
 .env
-.env.local
-.env.*.local
 
 # Logs
-app.log
 *.log
-
-# Test audio files
-test-audio/
-test_call.wav
-
-# Electron build output
-dist/
-out/
+npm-debug.log*
 
 # Bundled third-party binaries (downloaded via scripts/download-ffmpeg-win.sh)
 assets/bin/ffmpeg.exe
@@ -24,3 +17,10 @@ assets/bin/ffmpeg.exe
 # OS files
 .DS_Store
 Thumbs.db
+
+# Test files
+test-audio/
+
+# Editor
+.vscode/
+.idea/

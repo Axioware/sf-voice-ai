@@ -3,14 +3,17 @@
   "version": "1.0.0",
   "description": "Salesforce real-time voice AI assistant using Deepgram STT and Claude LLM",
   "main": "main.js",
+  "author": {
+    "name": "Rauf",
+    "email": "abdulraufsiddiqui1999@gmail.com"
+  },
   "scripts": {
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
     "build": "electron-builder --linux",
-    "build:win": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --dir && node -e \"const {execSync}=require('child_process'),v=require('./package.json').version;execSync('cd dist && zip -r \\\"SF-Voice-AI-'+v+'-win.zip\\\" win-unpacked/',{stdio:'inherit'});console.log('→ dist/SF-Voice-AI-'+v+'-win.zip')\"",
+    "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
-    "build:all": "electron-builder --linux --win --mac",
-    "dist": "electron-builder --linux --publish=never"
+    "build:all": "electron-builder --linux --win --mac"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.20.0",
@@ -27,7 +30,7 @@
   "build": {
     "appId": "com.yourcompany.sf-voice-ai",
     "productName": "SF Voice AI",
-    "copyright": "Copyright © 2024",
+    "copyright": "Copyright © 2024 Rauf",
     "directories": {
       "output": "dist",
       "buildResources": "assets"
@@ -43,50 +46,43 @@
       "!**/*.map",
       "!.env",
       "!.env.*",
-      "!.git/**"
+      "!.git/**",
+      "!test-audio/**",
+      "!test-simulation.sh",
+      "!*.log"
     ],
     "linux": {
       "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "deb",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "rpm",
-          "arch": [
-            "x64"
-          ]
-        }
+        { "target": "deb",      "arch": ["x64"] },
+        { "target": "AppImage", "arch": ["x64"] }
       ],
       "icon": "assets/icon.png",
       "category": "Office",
       "description": "Salesforce Voice AI Assistant"
     },
+    "deb": {
+      "artifactName": "SF-Voice-AI-${version}-linux.deb",
+      "depends": ["ffmpeg"]
+    },
+    "appImage": {
+      "artifactName": "SF-Voice-AI-${version}-linux.AppImage"
+    },
     "win": {
       "target": [
         {
-          "target": "zip",
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
           "arch": [
             "x64"
           ]
         }
       ],
-      "icon": "assets/icon.png",
-      "sign": null,
-      "extraResources": [
-        {
-          "from": "assets/bin/ffmpeg.exe",
-          "to": "ffmpeg.exe"
-        }
-      ]
+      "icon": "assets/icon.png"
     },
     "mac": {
       "target": [
@@ -99,27 +95,30 @@
         }
       ],
       "icon": "assets/icon.png",
-      "category": "public.app-category.business"
+      "artifactName": "SF-Voice-AI-${version}-windows-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "installerHeaderIcon": "assets/icon.png",
+      "artifactName": "SF-Voice-AI-${version}-windows-setup.exe"
     },
-    "appImage": {
-      "artifactName": "SF-Voice-AI-${version}.AppImage"
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] }
+      ],
+      "icon": "assets/icon.png",
+      "category": "public.app-category.business",
+      "artifactName": "SF-Voice-AI-${version}-mac.dmg"
     },
-    "deb": {
-      "artifactName": "SF-Voice-AI-${version}.deb",
-      "depends": [
-        "pulseaudio-utils",
-        "sox"
+    "dmg": {
+      "title": "SF Voice AI",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
       ]
     }
-  },
-  "author": {
-    "name": "Rauf",
-    "email": "abdulraufsiddiqui1999@gmail.com"
   }
 }
