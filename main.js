@@ -8,7 +8,7 @@ const DeepgramService     = require('./services/deepgram')
 const ClaudeService       = require('./services/claude')
 const SalesforceService   = require('./services/salesforce')
 
-const store = new Store()
+const store = new Store({ name: 'sf-voice-ai-config' })
 
 let mainWindow  = null
 let tray        = null
@@ -92,9 +92,11 @@ function syncEnvToStore() {
 
 function initServices() {
   const config = getCurrentConfig()
-  audioCapture     = new AudioCaptureService(config)
-  deepgramService  = new DeepgramService(config)
-  claudeService    = new ClaudeService(config)
+  console.log('[initServices] deepgramApiKey:', config.deepgramApiKey ? 'set (' + config.deepgramApiKey.length + ' chars)' : 'EMPTY')
+  console.log('[initServices] anthropicApiKey:', config.anthropicApiKey ? 'set (' + config.anthropicApiKey.length + ' chars)' : 'EMPTY')
+  audioCapture      = new AudioCaptureService(config)
+  deepgramService   = new DeepgramService(config)
+  claudeService     = new ClaudeService(config)
   salesforceService = new SalesforceService(config)
 
   deepgramService.on('transcript',    handleTranscript)
@@ -158,16 +160,17 @@ async function callLLM() {
 ipcMain.handle('start-call', async () => {
   if (isCallActive) return { success: false, error: 'Call already active' }
 
-  // Re-init services with latest config from store before connecting
-  // This ensures keys saved via Settings are always picked up
-  initServices()
-
+  // Always get fresh config from store before connecting
+  // This ensures keys saved in Settings are always picked up
   const config = getCurrentConfig()
 
   console.log('[start-call] deepgramApiKey present:', !!config.deepgramApiKey)
-  console.log('[start-call] key length:', config.deepgramApiKey?.length || 0)
+  console.log('[start-call] key length:', config.deepgramApiKey ? config.deepgramApiKey.length : 0)
 
   if (!config.deepgramApiKey) return { success: false, error: 'Deepgram API key not set. Go to Settings.' }
+
+  // Re-init ALL services with the latest config so they have the correct API keys
+  initServices()
 
   try {
     isCallActive = true
