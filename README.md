@@ -38,9 +38,9 @@ Salesforce Call Audio
 | Anthropic account | https://console.anthropic.com |
 
 **For capturing the other side of the call (not just your mic):**
-- macOS: Install [BlackHole](https://github.com/ExistentialAudio/BlackHole) (free virtual audio device)
-- Windows: Install [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) (free)
-- Linux: Use PulseAudio loopback module
+- Windows: Install [ffmpeg](https://ffmpeg.org/download.html) — WASAPI loopback capture is built into Windows 10/11, no VB-Cable needed
+- macOS: Install [ffmpeg](https://ffmpeg.org/download.html) (`brew install ffmpeg`) + optionally [BlackHole](https://github.com/ExistentialAudio/BlackHole) for system-audio loopback
+- Linux: `parec` via `sudo apt install pulseaudio-utils` (uses PulseAudio monitor sources automatically)
 
 ---
 
@@ -162,7 +162,7 @@ Suggest a discovery question or value proposition to advance the conversation.
 | `SoX not found` | Install SoX for your platform (see Prerequisites) |
 | No audio input | Check System Preferences > Privacy > Microphone |
 | Deepgram timeout | Check your API key and network connection |
-| Only hearing yourself (not caller) | Install BlackHole/VB-Cable and select it as audio device |
+| Only hearing yourself (not caller) | Windows: ensure ffmpeg is installed — WASAPI loopback captures caller audio automatically. macOS: install BlackHole and select it in Settings. |
 | Anthropic 401 error | Check your ANTHROPIC_API_KEY in Settings |
 
 ---

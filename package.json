@@ -7,7 +7,7 @@
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
     "build": "electron-builder --linux",
-    "build:win": "electron-builder --win",
+    "build:win": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --dir && node -e \"const {execSync}=require('child_process'),v=require('./package.json').version;execSync('cd dist && zip -r \\\"SF-Voice-AI-'+v+'-win.zip\\\" win-unpacked/',{stdio:'inherit'});console.log('→ dist/SF-Voice-AI-'+v+'-win.zip')\"",
     "build:mac": "electron-builder --mac",
     "build:all": "electron-builder --linux --win --mac",
     "dist": "electron-builder --linux --publish=never"
@@ -73,19 +73,20 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
+          "target": "zip",
           "arch": [
             "x64"
           ]
         }
       ],
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "sign": null,
+      "extraResources": [
+        {
+          "from": "assets/bin/ffmpeg.exe",
+          "to": "ffmpeg.exe"
+        }
+      ]
     },
     "mac": {
       "target": [

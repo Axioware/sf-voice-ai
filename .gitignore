@@ -18,6 +18,9 @@ test_call.wav
 dist/
 out/
 
+# Bundled third-party binaries (downloaded via scripts/download-ffmpeg-win.sh)
+assets/bin/ffmpeg.exe
+
 # OS files
 .DS_Store
 Thumbs.db
