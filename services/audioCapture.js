@@ -1,15 +1,5 @@
 const { EventEmitter } = require('events')
 const { execSync, spawn } = require('child_process')
-const path = require('path')
-const fs   = require('fs')
-
-// In a packaged Electron app, extraResources land in process.resourcesPath.
-// In dev, fall back to system ffmpeg on PATH.
-function getFfmpegBin() {
-  if (process.platform !== 'win32') return 'ffmpeg'
-  const bundled = path.join(process.resourcesPath || '', 'ffmpeg.exe')
-  return fs.existsSync(bundled) ? bundled : 'ffmpeg'
-}
 
 class AudioCaptureService extends EventEmitter {
   constructor(config) {
@@ -20,248 +10,272 @@ class AudioCaptureService extends EventEmitter {
     this.isRecording  = false
   }
 
-  // ── Start both channels ────────────────────────────────────────────────────
-  async start(deviceName = 'default') {
+  async start(deviceName) {
     if (this.isRecording) await this.stop()
     this.isRecording = true
 
-    // Lead source — from Settings or auto-detect monitor
-    let leadSource
-    if (deviceName && deviceName !== 'default') {
-      leadSource = deviceName
+    const platform = process.platform
+    console.log('[Audio] Platform:', platform)
+
+    var leadSource, agentSource, format
+
+    if (platform === 'linux') {
+      leadSource  = deviceName && deviceName !== 'default'
+        ? deviceName
+        : this._getLinuxMonitor()
+      agentSource = this._getLinuxMic()
+      format      = 'pulse'
+      console.log('[Audio] Lead (monitor):', leadSource)
+      console.log('[Audio] Agent (mic):', agentSource)
+      var results = await Promise.all([
+        this._startFFmpegPulse(leadSource,  'lead'),
+        this._startFFmpegPulse(agentSource, 'agent')
+      ])
+
+    } else if (platform === 'win32') {
+      leadSource  = deviceName && deviceName !== 'default'
+        ? deviceName
+        : 'CABLE Output (VB-Audio Virtual Cable)'
+      agentSource = 'default'
+      console.log('[Audio] Lead (VB-Cable):', leadSource)
+      console.log('[Audio] Agent (mic): default')
+      var results = await Promise.all([
+        this._startFFmpegDShow(leadSource,  'lead'),
+        this._startFFmpegDShow(agentSource, 'agent')
+      ])
+
+    } else if (platform === 'darwin') {
+      leadSource  = deviceName && deviceName !== 'default'
+        ? deviceName
+        : this._getMacDeviceIndex('BlackHole') || '1'
+      agentSource = '0'
+      console.log('[Audio] Lead (BlackHole index):', leadSource)
+      console.log('[Audio] Agent (mic index):', agentSource)
+      var results = await Promise.all([
+        this._startFFmpegAVF(leadSource + ':none',  'lead'),
+        this._startFFmpegAVF(agentSource + ':none', 'agent')
+      ])
+
     } else {
-      leadSource = this._autoDetectMonitor()
+      throw new Error('Unsupported platform: ' + platform)
     }
 
-    // Agent source — always the real mic (headset or default mic)
-    const agentSource = this._autoDetectMic()
-
-    console.log(`[Audio] Lead  → ${leadSource}`)
-    console.log(`[Audio] Agent → ${agentSource}`)
-
-    const [leadStream, agentStream] = await Promise.all([
-      this._startFFmpeg(devices.lead,  devices.leadFormat,  'lead'),
-      this._startFFmpeg(devices.agent, devices.agentFormat, 'agent')
-    ])
-    return { leadStream, agentStream }
+    return { leadStream: results[0], agentStream: results[1] }
   }
 
-  // ── Auto detect monitor (lead — what comes out of speakers/headset) ────────
-  _autoDetectMonitor() {
-    try {
-      // Get the default output sink
-      const defaultSink = execSync('pactl get-default-sink 2>/dev/null').toString().trim()
-      if (defaultSink) {
-        console.log(`[Audio] Default sink: ${defaultSink}`)
-        return `${defaultSink}.monitor`
-      }
-    } catch (e) {}
-    return 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor'
+  // ── Linux: FFmpeg with PulseAudio ──────────────────────────────────────────
+  _startFFmpegPulse(device, channel) {
+    const args = [
+      '-f',  'pulse',
+      '-i',  device,
+      '-ar', '16000',
+      '-ac', '1',
+      '-f',  's16le',
+      '-'
+    ]
+    return this._startFFmpeg(args, channel)
   }
 
-  // ── Auto detect mic (agent — what comes from mic/headset mic) ─────────────
-  _autoDetectMic() {
-    try {
-      const sources = execSync('pactl list sources short 2>/dev/null').toString()
-      const lines   = sources.split('\n').filter(Boolean)
-
-      // Priority 1 — USB headset mic (most specific)
-      const usbMic = lines.find(l => {
-        const name = l.split('\t')[1]?.trim() || ''
-        return name.includes('usb') && name.includes('input')
-      })
-      if (usbMic) {
-        const name = usbMic.split('\t')[1].trim()
-        console.log(`[Audio] Found USB headset mic: ${name}`)
-        return name
-      }
-
-      // Priority 2 — any analog input (3.5mm headset)
-      const analogMic = lines.find(l => {
-        const name = l.split('\t')[1]?.trim() || ''
-        return name.includes('input') && name.includes('analog') && !name.includes('monitor')
-      })
-      if (analogMic) {
-        const name = analogMic.split('\t')[1].trim()
-        console.log(`[Audio] Found analog mic: ${name}`)
-        return name
-      }
-
-      // Priority 3 — any input source that is not a monitor
-      const anyMic = lines.find(l => {
-        const name = l.split('\t')[1]?.trim() || ''
-        return name.includes('input') && !name.includes('monitor')
-      })
-      if (anyMic) {
-        const name = anyMic.split('\t')[1].trim()
-        console.log(`[Audio] Found mic: ${name}`)
-        return name
-      }
-
-      // Priority 4 — default source
-      const defaultSource = execSync('pactl get-default-source 2>/dev/null').toString().trim()
-      if (defaultSource && !defaultSource.includes('monitor')) {
-        console.log(`[Audio] Using default source: ${defaultSource}`)
-        return defaultSource
-      }
-
-    } catch (e) {
-      console.error('[Audio] Mic detection error:', e.message)
-    }
-
-    return '@DEFAULT_SOURCE@'
+  // ── Windows: FFmpeg with DirectShow ───────────────────────────────────────
+  _startFFmpegDShow(device, channel) {
+    const inputDevice = device === 'default'
+      ? 'audio=@device_cm_{33D9A762-90C8-11D0-BD43-00A0C911CE86}\\wave_{00000000-0000-0000-0000-000000000000}'
+      : 'audio=' + device
+    const args = [
+      '-f',  'dshow',
+      '-i',  inputDevice,
+      '-ar', '16000',
+      '-ac', '1',
+      '-f',  's16le',
+      '-'
+    ]
+    return this._startFFmpeg(args, channel)
   }
 
-  // ── Start parec for one channel ────────────────────────────────────────────
-  _startParec(source, channel) {
-    return new Promise((resolve, reject) => {
-      console.log(`[Audio] Starting parec for ${channel} on ${source}`)
+  // ── Mac: FFmpeg with AVFoundation ──────────────────────────────────────────
+  _startFFmpegAVF(device, channel) {
+    const args = [
+      '-f',  'avfoundation',
+      '-i',  device,
+      '-ar', '16000',
+      '-ac', '1',
+      '-f',  's16le',
+      '-'
+    ]
+    return this._startFFmpeg(args, channel)
+  }
 
-      const args = [
-        '-f',  format,          // input format (pulse / dshow / avfoundation)
-        '-i',  device,          // input device
-        '-ar', '16000',         // sample rate 16kHz (what Deepgram expects)
-        '-ac', '1',             // mono channel
-        '-f',  's16le',         // output format: signed 16-bit little-endian PCM
-        '-'                     // output to stdout (pipe)
-      ]
+  // ── Core FFmpeg spawn ──────────────────────────────────────────────────────
+  _startFFmpeg(args, channel) {
+    const self = this
+    return new Promise(function(resolve, reject) {
+      console.log('[Audio] FFmpeg [' + channel + ']:', args.join(' '))
 
-      const proc = spawn('parec', args)
+      const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] })
 
-      proc.on('error', (err) => {
+      proc.on('error', function(err) {
+        self.isRecording = false
         if (err.code === 'ENOENT') {
-          reject(new Error('parec not found. Run: sudo apt install pulseaudio-utils'))
+          reject(new Error(
+            'FFmpeg not found.\n' +
+            'Linux:   sudo apt install ffmpeg\n' +
+            'Mac:     brew install ffmpeg\n' +
+            'Windows: winget install ffmpeg  OR  https://ffmpeg.org/download.html'
+          ))
         } else {
-          reject(new Error(`parec [${channel}] error: ${err.message}`))
+          reject(new Error('Audio [' + channel + '] error: ' + err.message))
         }
       })
 
-      proc.stderr.on('data', (data) => {
-        const msg = data.toString().trim()
-        console.error(`[parec:${channel}] ${msg}`)
-        if (msg.includes('Failed') || msg.includes('Connection refused') || msg.includes('No such')) {
-          this.emit('error', new Error(`Audio [${channel}]: ${msg}`))
+      proc.stderr.on('data', function(data) {
+        const msg = data.toString()
+        if (msg.toLowerCase().indexOf('error') > -1 ||
+            msg.toLowerCase().indexOf('no such') > -1 ||
+            msg.toLowerCase().indexOf('invalid') > -1) {
+          console.log('[FFmpeg ' + channel + ']', msg.trim().split('\n')[0])
         }
       })
 
-      let resolved = false
+      var resolved = false
 
-      // Resolve after first data chunk arrives
-      proc.stdout.once('data', () => {
+      var timeout = setTimeout(function() {
+        if (!resolved) {
+          resolved = true
+          console.log('[Audio] ' + channel + ': waiting for audio (device may be silent)')
+          resolve(proc.stdout)
+        }
+      }, 5000)
+
+      proc.stdout.once('data', function() {
         if (!resolved) {
           resolved = true
           clearTimeout(timeout)
-          console.log(`[Audio] ${channel} stream active`)
+          console.log('[Audio] ' + channel + ': receiving audio')
           resolve(proc.stdout)
         }
       })
 
-      // Timeout — if no data in 4s, resolve anyway (mic might be silent)
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          resolved = true
-          console.warn(`[Audio] ${channel} timeout — no data yet, continuing anyway`)
-          resolve(proc.stdout)
+      proc.stdout.on('error', function(err) { self.emit('error', err) })
+
+      proc.on('exit', function(code) {
+        if (code !== 0 && code !== null && code !== undefined) {
+          console.log('[Audio] FFmpeg [' + channel + '] exit code:', code)
         }
-      }, 4000)
+      })
 
-      proc.stdout.on('error', (err) => this.emit('error', err))
-
-      if (channel === 'lead')  this.leadProcess  = proc
-      if (channel === 'agent') this.agentProcess = proc
+      if (channel === 'lead')  self.leadProcess  = proc
+      if (channel === 'agent') self.agentProcess = proc
     })
   }
 
-  // ── Stop all capture ───────────────────────────────────────────────────────
   async stop() {
     this.isRecording = false
-    const procs = [this.leadProcess, this.agentProcess]
+    var procs = [this.leadProcess, this.agentProcess]
     procs.forEach(function(proc) {
       if (proc) {
-        try { proc.stdin.write('q') } catch (e) {}   // graceful FFmpeg quit
-        try { proc.kill('SIGTERM') }  catch (e) {}
+        try { proc.kill('SIGTERM') } catch (e) {}
       }
     })
     this.leadProcess  = null
     this.agentProcess = null
   }
 
-  // ── List audio devices ────────────────────────────────────────────────────
   listDevices() {
-    const devices = []
+    const platform = process.platform
+    if (platform === 'linux')  return this._listLinux()
+    if (platform === 'win32')  return this._listWindows()
+    if (platform === 'darwin') return this._listMac()
+    return [{ id: 'default', name: 'Default' }]
+  }
 
+  // ── Linux device list ──────────────────────────────────────────────────────
+  _listLinux() {
+    var devices = [{ id: 'default', name: '⚡ Auto-detect (recommended)' }]
     try {
-      const sources = execSync('pactl list sources short 2>/dev/null').toString()
-      const sinks   = execSync('pactl list sinks short 2>/dev/null').toString()
+      execSync('pactl list sources short 2>/dev/null').toString()
+        .split('\n').filter(Boolean).forEach(function(line) {
+          var name = line.split('\t')[1] && line.split('\t')[1].trim()
+          if (!name) return
+          var isMonitor = name.indexOf('.monitor') > -1
+          var isMic     = name.indexOf('input') > -1 || name.indexOf('mic') > -1
+          var label = isMonitor
+            ? '🔊 ' + name + ' — Lead voice (call audio)'
+            : isMic ? '🎤 ' + name + ' — Agent mic' : name
+          devices.push({ id: name, name: label, isMonitor: isMonitor })
+        })
+    } catch (e) {}
+    return devices
+  }
 
-      // Add monitor sources first (for lead channel)
-      sources.split('\n').filter(Boolean).forEach(line => {
-        const name = line.split('\t')[1]?.trim()
-        if (!name || name === 'agent_sink.monitor') return
-
-        if (name.includes('.monitor')) {
-          let label = '🔊 ' + name
-          if (name.includes('usb'))          label += ' — Headset output monitor ← use for lead'
-          else if (name.includes('analog'))  label += ' — Speaker output monitor ← use for lead'
-          devices.push({ id: name, name: label, isMonitor: true })
+  // ── Windows device list ────────────────────────────────────────────────────
+  _listWindows() {
+    var devices = [
+      { id: 'default', name: '⚡ Auto-detect (VB-Cable for lead, default mic for agent)' },
+      { id: 'CABLE Output (VB-Audio Virtual Cable)', name: '🔊 VB-Cable Output — Lead voice (call audio) ← select this' }
+    ]
+    try {
+      var out = execSync('ffmpeg -list_devices true -f dshow -i dummy 2>&1').toString()
+      out.split('\n').forEach(function(line) {
+        if (line.indexOf('"') > -1) {
+          var match = line.match(/"([^"]+)"/)
+          if (match && match[1] &&
+              match[1].indexOf('CABLE') === -1) {
+            devices.push({ id: match[1], name: '🎤 ' + match[1] })
+          }
         }
       })
+    } catch (e) {}
+    return devices
+  }
 
-      // Add mic input sources
-      sources.split('\n').filter(Boolean).forEach(line => {
-        const name = line.split('\t')[1]?.trim()
-        if (!name || name.includes('.monitor') || name.includes('virtual_mic')) return
-
-        if (name.includes('input') || name.includes('mic')) {
-          let label = '🎤 ' + name
-          if (name.includes('usb'))    label += ' — USB Headset mic'
-          else if (name.includes('analog')) label += ' — Analog mic / 3.5mm headset'
-          devices.push({ id: name, name: label, isMic: true })
+  // ── Mac device list ────────────────────────────────────────────────────────
+  _listMac() {
+    var devices = [{ id: 'default', name: '⚡ Auto-detect (BlackHole for lead, mic for agent)' }]
+    try {
+      var out = execSync('ffmpeg -f avfoundation -list_devices true -i "" 2>&1').toString()
+      out.split('\n').forEach(function(line) {
+        var idxMatch  = line.match(/\[(\d+)\]/)
+        var nameMatch = line.match(/\]\s+(.+)$/)
+        if (idxMatch && nameMatch) {
+          var name = nameMatch[1].trim()
+          var isBlackhole = name.toLowerCase().indexOf('blackhole') > -1
+          devices.push({
+            id:   idxMatch[1],
+            name: (isBlackhole ? '🔊 ' : '🎤 ') + name
+          })
         }
       })
-
-    } catch (e) {
-      console.error('[Audio] listDevices error:', e.message)
-    }
-
-    // Always add auto-detect at top
-    devices.unshift({
-      id:   'default',
-      name: '⚡ Auto-detect (uses default output monitor for lead, default mic for agent)'
-    })
-
+    } catch (e) {}
     return devices
   }
 
   // ── Linux helpers ──────────────────────────────────────────────────────────
-  _getLinuxMonitor(deviceName) {
-    if (deviceName && deviceName !== 'default') return deviceName
+  _getLinuxMonitor() {
     try {
-      const defaultSink = execSync('pactl get-default-sink 2>/dev/null').toString().trim()
+      var defaultSink = execSync('pactl get-default-sink 2>/dev/null').toString().trim()
       if (defaultSink) return defaultSink + '.monitor'
     } catch (e) {}
-    return 'default.monitor'
+    return 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor'
   }
 
   _getLinuxMic() {
     try {
-      // Prefer virtual_mic if it exists (for testing)
-      const sources = execSync('pactl list sources short 2>/dev/null').toString()
+      var sources = execSync('pactl list sources short 2>/dev/null').toString()
       if (sources.indexOf('virtual_mic') > -1) return 'virtual_mic'
-      const defaultSrc = execSync('pactl get-default-source 2>/dev/null').toString().trim()
+      var defaultSrc = execSync('pactl get-default-source 2>/dev/null').toString().trim()
       if (defaultSrc && defaultSrc.indexOf('.monitor') === -1) return defaultSrc
     } catch (e) {}
-    return 'default'
+    return '@DEFAULT_SOURCE@'
   }
 
   // ── Mac helpers ────────────────────────────────────────────────────────────
-  _getMacDeviceIndex(deviceName) {
+  _getMacDeviceIndex(name) {
     try {
-      const out = execSync('ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true').toString()
-      const lines = out.split('\n')
+      var out = execSync('ffmpeg -f avfoundation -list_devices true -i "" 2>&1').toString()
+      var lines = out.split('\n')
       for (var i = 0; i < lines.length; i++) {
-        if (lines[i].toLowerCase().indexOf(deviceName.toLowerCase()) > -1) {
-          const match = lines[i].match(/\[(\d+)\]/)
+        if (lines[i].toLowerCase().indexOf(name.toLowerCase()) > -1) {
+          var match = lines[i].match(/\[(\d+)\]/)
           if (match) return match[1]
         }
       }

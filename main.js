@@ -67,8 +67,10 @@ function createTray() {
 
 // ── Services ──────────────────────────────────────────────────────────────────
 function syncEnvToStore() {
-  // .env always wins — if a key exists in .env, it overwrites whatever is in the store.
-  // This means changing .env and restarting the app immediately takes effect.
+  // Only write .env value to store if:
+  // 1. .env has a non-empty value
+  // 2. The store does NOT already have a user-entered value
+  // This means Settings always wins over .env on machines where user has saved keys
   const pairs = [
     ['deepgramApiKey',  process.env.DEEPGRAM_API_KEY],
     ['anthropicApiKey', process.env.ANTHROPIC_API_KEY],
@@ -78,7 +80,13 @@ function syncEnvToStore() {
     ['sfRefreshToken',  process.env.SF_REFRESH_TOKEN],
   ]
   pairs.forEach(([key, val]) => {
-    if (val && val.trim()) store.set(key, val.trim())
+    const envVal   = val && val.trim() ? val.trim() : null
+    const storeVal = store.get(key, null)
+    // Only write from .env if store is empty
+    if (envVal && !storeVal) {
+      store.set(key, envVal)
+      console.log('[config] Loaded from .env:', key)
+    }
   })
 }
 

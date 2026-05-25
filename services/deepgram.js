@@ -1,18 +1,5 @@
 const { EventEmitter } = require('events')
 
-const CONNECTION_OPTIONS = {
-  model:            'nova-2',
-  smart_format:     true,
-  interim_results:  true,
-  utterance_end_ms: 1500,
-  vad_events:       true,
-  encoding:         'linear16',
-  sample_rate:      16000,
-  channels:         1,
-  punctuate:        true,
-  endpointing:      600
-}
-
 class DeepgramService extends EventEmitter {
   constructor(config) {
     super()
@@ -24,17 +11,27 @@ class DeepgramService extends EventEmitter {
   }
 
   async connect(config) {
-    config = config || {}
-    const apiKey = config.deepgramApiKey || this.config.deepgramApiKey
-    if (!apiKey) throw new Error('Deepgram API key is required.')
+    config   = config || {}
+    // Always read fresh from passed config — never rely on stale constructor config
+    const apiKey = (config.deepgramApiKey || this.config.deepgramApiKey || '').trim()
+    if (!apiKey) throw new Error('Deepgram API key is required. Go to Settings and add it.')
 
-    const { DeepgramClient } = require('@deepgram/sdk')
-    const dg = new DeepgramClient(apiKey)
-    console.log('[Deepgram] Connecting...')
+    let createClient
+    try {
+      const sdk = require('@deepgram/sdk')
+      createClient = sdk.createClient
+      if (!createClient) throw new Error('createClient not found in SDK')
+    } catch (e) {
+      throw new Error('Deepgram SDK not installed. Run: npm install @deepgram/sdk')
+    }
 
+    console.log('[Deepgram] API key length:', apiKey.length)
+    console.log('[Deepgram] Connecting with listen.live...')
+
+    const self = this
     const [leadSocket, agentSocket] = await Promise.all([
-      this._createSocket(dg, 'lead'),
-      this._createSocket(dg, 'agent')
+      self._createSocket(createClient, apiKey, 'lead'),
+      self._createSocket(createClient, apiKey, 'agent')
     ])
 
     this.leadSocket  = leadSocket
@@ -44,58 +41,82 @@ class DeepgramService extends EventEmitter {
     this.emit('connected')
   }
 
-  _createSocket(dg, channel) {
+  _createSocket(createClient, apiKey, channel) {
     const self = this
-    return new Promise((resolve, reject) => {
-      ;(async () => {
-        const timeout = setTimeout(() => reject(new Error('Deepgram connection timeout.')), 10000)
+    return new Promise(function(resolve, reject) {
+      const timeout = setTimeout(function() {
+        reject(new Error('Deepgram connection timeout. Check your API key and internet.'))
+      }, 10000)
+
+      let socket
+      try {
+        const dg = createClient(apiKey)
+        socket = dg.listen.live({
+          model:            'nova-2',
+          smart_format:     true,
+          interim_results:  true,
+          utterance_end_ms: 1500,
+          vad_events:       true,
+          encoding:         'linear16',
+          sample_rate:      16000,
+          channels:         1,
+          punctuate:        true,
+          endpointing:      600
+        })
+      } catch (e) {
+        clearTimeout(timeout)
+        return reject(new Error('Failed to create Deepgram socket: ' + e.message))
+      }
+
+      socket.on('open', function() {
+        clearTimeout(timeout)
+        console.log('[Deepgram] Socket open:', channel)
+        resolve(socket)
+      })
+
+      socket.on('Results', function(data) {
         try {
-          const socket = await dg.listen.v1.connect(CONNECTION_OPTIONS)
+          const alt  = data && data.channel && data.channel.alternatives && data.channel.alternatives[0]
+          const text = alt && alt.transcript && alt.transcript.trim()
+          if (!text) return
+          const isFinal = data.is_final || data.speech_final
+          self.emit('transcript', { text: text, isFinal: isFinal, channel: channel })
+          if (data.speech_final) {
+            console.log('[Deepgram] speech_final:', channel)
+            self.emit('utterance-end', { channel: channel })
+          }
+        } catch (e) {}
+      })
 
-          // Register handlers BEFORE socket.connect() so nothing is missed
-          socket.on('message', (data) => {
-            try {
-              if (!data || !data.type) return
-              if (data.type === 'Results') {
-                const alt  = data.channel?.alternatives?.[0]
-                const text = alt?.transcript?.trim()
-                if (!text) return
-                const isFinal = data.is_final || data.speech_final
-                self.emit('transcript', { text, isFinal, channel })
-                if (data.speech_final) {
-                  console.log('[Deepgram] speech_final:', channel)
-                  self.emit('utterance-end', { channel })
-                }
-              } else if (data.type === 'UtteranceEnd') {
-                console.log('[Deepgram] UtteranceEnd:', channel)
-                self.emit('utterance-end', { channel })
-              }
-            } catch (e) {}
-          })
+      socket.on('UtteranceEnd', function() {
+        console.log('[Deepgram] UtteranceEnd:', channel)
+        self.emit('utterance-end', { channel: channel })
+      })
 
-          socket.on('error', (err) => {
-            self.isConnected = false
-            self.emit('error', new Error('Deepgram [' + channel + ']: ' + (err?.message || String(err))))
-          })
+      socket.on('SpeechStarted', function() {
+        self.emit('speech-started', { channel: channel })
+      })
 
-          socket.on('close', () => {
-            self.isConnected = false
-            self._stopKeepAlive()
-            self.emit('disconnected')
-          })
+      socket.on('error', function(err) {
+        clearTimeout(timeout)
+        self.isConnected = false
+        const msg = err && err.message ? err.message : String(err)
+        const e   = new Error(self._friendlyError(msg))
+        self.emit('error', e)
+        reject(e)
+      })
 
-          // Start the connection now that handlers are registered
-          socket.connect()
-
-          await socket.waitForOpen()
-          clearTimeout(timeout)
-          console.log('[Deepgram] open:', channel)
-          resolve(socket)
-        } catch (err) {
-          clearTimeout(timeout)
-          reject(err)
+      socket.on('close', function(code) {
+        clearTimeout(timeout)
+        self.isConnected = false
+        self._stopKeepAlive()
+        self.emit('disconnected')
+        if (code === 1008 || code === 401) {
+          const e = new Error('Deepgram API key invalid (401). Check Settings.')
+          self.emit('error', e)
+          reject(e)
         }
-      })()
+      })
     })
   }
 
@@ -104,14 +125,17 @@ class DeepgramService extends EventEmitter {
     const socket = channel === 'agent' ? this.agentSocket : this.leadSocket
     if (!socket) return
     try {
-      if (socket.readyState === 1) socket.sendMedia(chunk)
+      if (socket.getReadyState() === 1) socket.send(chunk)
     } catch (e) {}
   }
 
   async disconnect() {
     this._stopKeepAlive()
     this.isConnected = false
-    ;[this.leadSocket, this.agentSocket].forEach(s => { if (s) try { s.close() } catch (e) {} })
+    var sockets = [this.leadSocket, this.agentSocket]
+    sockets.forEach(function(s) {
+      if (s) { try { s.requestClose() } catch (e) {} }
+    })
     this.leadSocket  = null
     this.agentSocket = null
     this.emit('disconnected')
@@ -120,34 +144,52 @@ class DeepgramService extends EventEmitter {
   async testConnection(apiKey) {
     try {
       const https = require('https')
-      return await new Promise((resolve) => {
+      return await new Promise(function(resolve) {
         const req = https.request({
-          hostname: 'api.deepgram.com', path: '/v1/projects',
-          method: 'GET', headers: { Authorization: 'Token ' + apiKey }
-        }, (res) => {
+          hostname: 'api.deepgram.com',
+          path:     '/v1/projects',
+          method:   'GET',
+          headers:  { Authorization: 'Token ' + apiKey.trim() }
+        }, function(res) {
           if (res.statusCode === 200)      resolve({ success: true })
           else if (res.statusCode === 401) resolve({ success: false, error: 'Invalid API key (401)' })
           else                             resolve({ success: false, error: 'Status ' + res.statusCode })
           res.resume()
         })
-        req.on('error', (e) => resolve({ success: false, error: e.message }))
-        req.setTimeout(5000, () => { req.destroy(); resolve({ success: false, error: 'Timeout' }) })
+        req.on('error', function(e) { resolve({ success: false, error: e.message }) })
+        req.setTimeout(5000, function() { req.destroy(); resolve({ success: false, error: 'Timeout' }) })
         req.end()
       })
-    } catch (e) { return { success: false, error: e.message } }
+    } catch (e) {
+      return { success: false, error: e.message }
+    }
+  }
+
+  _friendlyError(msg) {
+    const m = (msg || '').toLowerCase()
+    if (m.indexOf('401') > -1 || m.indexOf('unauthorized') > -1) return 'Deepgram API key invalid (401). Go to Settings and re-enter your key.'
+    if (m.indexOf('400') > -1) return 'Deepgram rejected parameters (400). Check audio settings.'
+    if (m.indexOf('enotfound') > -1 || m.indexOf('econnrefused') > -1) return 'Cannot reach Deepgram — check internet connection.'
+    if (m.indexOf('timeout') > -1) return 'Deepgram connection timed out.'
+    return 'Deepgram error: ' + msg
   }
 
   _startKeepAlive() {
     this._stopKeepAlive()
-    this.keepAliveInterval = setInterval(() => {
-      ;[this.leadSocket, this.agentSocket].forEach(s => {
-        if (s) try { s.sendKeepAlive() } catch (e) {}
+    const self = this
+    this.keepAliveInterval = setInterval(function() {
+      var sockets = [self.leadSocket, self.agentSocket]
+      sockets.forEach(function(s) {
+        if (s) { try { s.keepAlive() } catch (e) {} }
       })
     }, 10000)
   }
 
   _stopKeepAlive() {
-    if (this.keepAliveInterval) { clearInterval(this.keepAliveInterval); this.keepAliveInterval = null }
+    if (this.keepAliveInterval) {
+      clearInterval(this.keepAliveInterval)
+      this.keepAliveInterval = null
+    }
   }
 }
 
