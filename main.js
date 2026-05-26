@@ -169,7 +169,7 @@ ipcMain.handle('start-call', async () => {
     await deepgramService.connect(config)
 
     // Start both audio channels
-    const { leadStream, agentStream } = await audioCapture.start(config.audioDevice)
+    const { leadStream, agentStream } = await audioCapture.start(config.audioDevice, config.inputDevice)
 
     leadStream.on('data',  chunk => deepgramService.sendAudio(chunk, 'lead'))
     agentStream.on('data', chunk => deepgramService.sendAudio(chunk, 'agent'))
@@ -212,7 +212,8 @@ ipcMain.handle('save-settings',    (_, settings) => {
   initServices()
   return { success: true }
 })
-ipcMain.handle('get-audio-devices', async () => audioCapture?.listDevices() || [])
+ipcMain.handle('get-audio-devices',       async () => audioCapture?.listDevices()      || [])
+ipcMain.handle('get-input-devices',       async () => audioCapture?.listInputDevices() || [])
 ipcMain.handle('test-deepgram',    async () => {
   const key = getCurrentConfig().deepgramApiKey
   if (!key) return { success: false, error: 'No API key found' }
@@ -294,6 +295,7 @@ function getCurrentConfig() {
     sfRefreshToken: store.get('sfRefreshToken', process.env.SF_REFRESH_TOKEN || ''),
     systemPrompt:    store.get('systemPrompt',    getDefaultPrompt()),
     audioDevice:     store.get('audioDevice',     'default'),
+    inputDevice:     store.get('inputDevice',     'default'),
     language:        store.get('language',        'en-US'),
     alwaysOnTop:     store.get('alwaysOnTop',     true)
   }

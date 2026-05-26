@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   testSalesforce:   () => ipcRenderer.invoke('test-salesforce'),
   testAnthropic:    () => ipcRenderer.invoke('test-anthropic'),
   getAudioDevices:  () => ipcRenderer.invoke('get-audio-devices'),
+  getInputDevices:  () => ipcRenderer.invoke('get-input-devices'),
 
   // Window
   minimizeWindow:      () => ipcRenderer.invoke('minimize-window'),

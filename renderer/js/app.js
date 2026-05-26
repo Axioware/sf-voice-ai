@@ -341,7 +341,11 @@
     showEnvBadge('s-deepgram-key', s.deepgramApiKey)
     showEnvBadge('s-anthropic-key', s.anthropicApiKey)
 
-    const devices = await api.getAudioDevices()
+    const [devices, inputDevices] = await Promise.all([
+      api.getAudioDevices(),
+      api.getInputDevices()
+    ])
+
     const sel = $('s-audio-device')
     const savedDevice = s.audioDevice || 'default'
     sel.innerHTML = ''
@@ -352,13 +356,30 @@
       if (d.id === savedDevice) opt.selected = true
       sel.appendChild(opt)
     })
-    // If saved device not in list, force-set it so it persists
     if (!devices.find(d => d.id === savedDevice)) {
       const opt = document.createElement('option')
       opt.value = savedDevice
       opt.textContent = savedDevice + ' (saved)'
       opt.selected = true
       sel.insertBefore(opt, sel.firstChild)
+    }
+
+    const inSel = $('s-input-device')
+    const savedInput = s.inputDevice || 'default'
+    inSel.innerHTML = ''
+    inputDevices.forEach(d => {
+      const opt = document.createElement('option')
+      opt.value = d.id
+      opt.textContent = d.name
+      if (d.id === savedInput) opt.selected = true
+      inSel.appendChild(opt)
+    })
+    if (!inputDevices.find(d => d.id === savedInput)) {
+      const opt = document.createElement('option')
+      opt.value = savedInput
+      opt.textContent = savedInput + ' (saved)'
+      opt.selected = true
+      inSel.insertBefore(opt, inSel.firstChild)
     }
   }
 
@@ -373,6 +394,7 @@
       sfRefreshToken: $('s-sf-refresh-token').value.trim(),
       systemPrompt:    $('s-system-prompt').value.trim(),
       audioDevice:     $('s-audio-device').value,
+      inputDevice:     $('s-input-device').value,
       language:        $('s-language').value
     }
     const res = await api.saveSettings(settings)

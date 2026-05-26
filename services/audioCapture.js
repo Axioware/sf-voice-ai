@@ -11,12 +11,12 @@ class AudioCaptureService extends EventEmitter {
   }
 
   // ── Start both channels ────────────────────────────────────────────────────
-  async start(deviceName) {
+  async start(deviceName, inputDeviceName) {
     if (this.isRecording) await this.stop()
     this.isRecording = true
 
     const platform = process.platform
-    const devices  = this._getDevices(platform, deviceName)
+    const devices  = this._getDevices(platform, deviceName, inputDeviceName)
 
     console.log('[Audio] Platform:', platform)
     console.log('[Audio] Lead device:', devices.lead)
@@ -31,13 +31,12 @@ class AudioCaptureService extends EventEmitter {
   }
 
   // ── Get platform-specific device names and formats ────────────────────────
-  _getDevices(platform, deviceName) {
+  _getDevices(platform, deviceName, inputDeviceName) {
     if (platform === 'linux') {
-      // Linux: PulseAudio
-      // Lead  = monitor of default output (captures speaker/call audio)
-      // Agent = default microphone input
       const monitor = this._getLinuxMonitor(deviceName)
-      const mic     = this._getLinuxMic()
+      const mic = (inputDeviceName && inputDeviceName !== 'default')
+        ? inputDeviceName
+        : this._getLinuxMic()
       return {
         lead:        monitor,
         leadFormat:  'pulse',
@@ -46,31 +45,31 @@ class AudioCaptureService extends EventEmitter {
       }
 
     } else if (platform === 'win32') {
-      // Windows: DirectShow
-      // Lead  = VB-Audio Virtual Cable output (captures call audio from browser)
-      // Agent = default microphone
-      const leadDevice  = deviceName && deviceName !== 'default'
+      const leadDevice = deviceName && deviceName !== 'default'
         ? deviceName
         : 'audio=CABLE Output (VB-Audio Virtual Cable)'
+      const agentDevice = inputDeviceName && inputDeviceName !== 'default'
+        ? inputDeviceName
+        : 'audio=Microphone (Realtek High Definition Audio)'
       return {
         lead:        leadDevice,
         leadFormat:  'dshow',
-        agent:       'audio=Microphone (Realtek High Definition Audio)',
+        agent:       agentDevice,
         agentFormat: 'dshow'
       }
 
     } else if (platform === 'darwin') {
-      // Mac: AVFoundation
-      // Lead  = BlackHole 2ch (virtual loopback — captures speaker output)
-      // Agent = default microphone (index 0)
       const leadDevice = deviceName && deviceName !== 'default'
         ? deviceName
         : 'BlackHole 2ch'
       const leadIndex  = this._getMacDeviceIndex(leadDevice) || '1'
+      const agentIndex = (inputDeviceName && inputDeviceName !== 'default')
+        ? inputDeviceName
+        : '0'
       return {
-        lead:        leadIndex + ':none',   // audio:video (none = no video)
+        lead:        leadIndex + ':none',
         leadFormat:  'avfoundation',
-        agent:       '0:none',              // default mic
+        agent:       agentIndex + ':none',
         agentFormat: 'avfoundation'
       }
 
@@ -171,13 +170,22 @@ class AudioCaptureService extends EventEmitter {
     this.agentProcess = null
   }
 
-  // ── List audio devices ────────────────────────────────────────────────────
+  // ── List audio output/loopback devices (for lead channel) ────────────────
   listDevices() {
     const platform = process.platform
     if (platform === 'linux')  return this._listLinuxDevices()
     if (platform === 'win32')  return this._listWindowsDevices()
     if (platform === 'darwin') return this._listMacDevices()
     return [{ id: 'default', name: 'Default' }]
+  }
+
+  // ── List audio input/mic devices (for agent channel) ─────────────────────
+  listInputDevices() {
+    const platform = process.platform
+    if (platform === 'linux')  return this._listLinuxInputDevices()
+    if (platform === 'win32')  return this._listWindowsInputDevices()
+    if (platform === 'darwin') return this._listMacInputDevices()
+    return [{ id: 'default', name: 'Default Microphone' }]
   }
 
   // ── Linux: list PulseAudio sources ────────────────────────────────────────
@@ -237,6 +245,58 @@ class AudioCaptureService extends EventEmitter {
             id:   idxMatch[1],
             name: (isBlackhole ? '🔊 ' : '🎤 ') + nameMatch[1].trim()
           })
+        }
+      })
+    } catch (e) {}
+    return devices
+  }
+
+  // ── Linux: list PulseAudio input sources (non-monitor) ───────────────────
+  _listLinuxInputDevices() {
+    const devices = [{ id: 'default', name: '⚡ Auto-detect mic (recommended)' }]
+    try {
+      execSync('pactl list sources short 2>/dev/null').toString()
+        .split('\n').filter(Boolean).forEach(function(line) {
+          const parts = line.split('\t')
+          const name  = parts[1] && parts[1].trim()
+          if (!name || name.indexOf('.monitor') > -1) return
+          devices.push({ id: name, name: '🎤 ' + name })
+        })
+    } catch (e) {}
+    return devices
+  }
+
+  // ── Windows: list DirectShow audio input devices ──────────────────────────
+  _listWindowsInputDevices() {
+    const devices = [{ id: 'default', name: '⚡ Auto-detect (default microphone)' }]
+    try {
+      const out = execSync('ffmpeg -list_devices true -f dshow -i dummy 2>&1 || true').toString()
+      const lines = out.split('\n').filter(function(l) { return l.indexOf('"') > -1 && l.indexOf('audio') > -1 })
+      lines.forEach(function(l) {
+        const match = l.match(/"([^"]+)"/)
+        if (match && match[1]) {
+          devices.push({ id: 'audio=' + match[1], name: '🎤 ' + match[1] })
+        }
+      })
+    } catch (e) {}
+    return devices
+  }
+
+  // ── Mac: list AVFoundation audio input devices ────────────────────────────
+  _listMacInputDevices() {
+    const devices = [{ id: 'default', name: '⚡ Auto-detect (default mic, index 0)' }]
+    try {
+      const out = execSync('ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true').toString()
+      const lines = out.split('\n').filter(function(l) { return l.indexOf('[AVFoundation') > -1 && l.indexOf(']') > -1 })
+      lines.forEach(function(l) {
+        const idxMatch  = l.match(/\[(\d+)\]/)
+        const nameMatch = l.match(/\] (.+)$/)
+        if (idxMatch && nameMatch) {
+          const name = nameMatch[1].trim()
+          const isBlackhole = name.toLowerCase().indexOf('blackhole') > -1
+          if (!isBlackhole) {
+            devices.push({ id: idxMatch[1], name: '🎤 ' + name })
+          }
         }
       })
     } catch (e) {}
