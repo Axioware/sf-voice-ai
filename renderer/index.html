@@ -4,9 +4,137 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';" />
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" />
   <title>SF Voice AI</title>
   <link rel="stylesheet" href="css/styles.css" />
+  <style>
+    /* view-main layout is handled by .view and .view.active classes */
+    #view-main.active {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+    .chat-window {
+      flex: 1 1 auto;
+      min-height: 60px;
+      overflow-y: auto;
+    }
+    .ai-panel {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+      height: var(--ai-panel-height, 148px);
+      min-height: 38px;
+      max-height: 70vh;
+    }
+    .ai-resize-handle {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 8px;
+      cursor: ns-resize;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: -4px;
+    }
+    .ai-resize-handle::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: transparent;
+      transition: background 0.15s;
+    }
+    .ai-resize-handle::after {
+      content: '';
+      position: relative;
+      z-index: 1;
+      display: block;
+      width: 36px;
+      height: 3px;
+      border-radius: 3px;
+      background: rgba(99,102,241,0.3);
+      transition: background 0.15s, width 0.15s, box-shadow 0.15s;
+    }
+    .ai-resize-handle:hover::after,
+    .ai-resize-handle.dragging::after {
+      background: rgba(99,102,241,0.85);
+      width: 56px;
+      box-shadow: 0 0 8px rgba(99,102,241,0.5);
+    }
+    .ai-resize-handle:hover::before,
+    .ai-resize-handle.dragging::before {
+      background: rgba(99,102,241,0.06);
+    }
+    body.ai-resizing,
+    body.ai-resizing * {
+      cursor: ns-resize !important;
+      user-select: none !important;
+    }
+    .ai-body {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding-top: 8px;
+    }
+    /* ── Prominent Copy button ── */
+    .copy-ai-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(99,102,241,0.15);
+      border: 1px solid rgba(99,102,241,0.45);
+      color: var(--accent2, #818cf8);
+      height: 28px;
+      padding: 0 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+    .copy-ai-btn:hover {
+      background: rgba(99,102,241,0.9);
+      border-color: rgba(99,102,241,1);
+      color: #fff;
+      transform: translateY(-1px);
+    }
+    .copy-ai-btn:active { transform: scale(0.97); }
+    .copy-ai-btn.copied {
+      background: rgba(34,197,94,0.2);
+      border-color: rgba(34,197,94,0.5);
+      color: #22c55e;
+    }
+    /* ── Prominent Clear button ── */
+    .btn-clear-chat-prominent {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.3);
+      color: #fca5a5;
+      height: 44px;
+      padding: 0 14px;
+      border-radius: var(--r, 10px);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+      flex-shrink: 0;
+    }
+    .btn-clear-chat-prominent:hover {
+      background: rgba(239,68,68,0.18);
+      border-color: rgba(239,68,68,0.6);
+      color: #fff;
+      transform: translateY(-1px);
+    }
+    .btn-clear-chat-prominent:active { transform: scale(0.97); }
+  </style>
 </head>
 <body>
 
@@ -26,10 +154,9 @@
 
   <div class="app">
 
-    <!-- ── MAIN VIEW ────────────────────────────────────────────────────── -->
+    <!-- ── MAIN VIEW ── -->
     <div id="view-main" class="view active">
 
-      <!-- Status bar -->
       <div class="status-bar">
         <div class="status-dot idle" id="status-dot"></div>
         <span class="status-text" id="status-text">Ready</span>
@@ -39,7 +166,6 @@
         </div>
       </div>
 
-      <!-- Channel indicators + Lead info bar -->
       <div class="channels" id="channels">
         <div class="channel-pill lead">
           <span class="ch-dot"></span>
@@ -51,7 +177,6 @@
         </div>
       </div>
 
-      <!-- Lead info bar -->
       <div class="lead-bar" id="lead-bar">
         <div class="lead-info hidden" id="lead-info">
           <span class="lead-avatar" id="lead-avatar">?</span>
@@ -68,7 +193,6 @@
         <span class="lookup-status hidden" id="lookup-status"></span>
       </div>
 
-      <!-- Chat window -->
       <div class="chat-window" id="chat-window">
         <div class="chat-empty" id="chat-empty">
           <div class="chat-empty-icon">🎙</div>
@@ -77,30 +201,33 @@
         </div>
       </div>
 
-      <!-- AI reply panel -->
+      <!-- AI suggestion panel (resizable, no toggle button) -->
       <div class="ai-panel" id="ai-panel">
+        <div class="ai-resize-handle" id="ai-resize-handle" title="Drag up / down to resize"></div>
         <div class="ai-panel-header">
           <span class="ai-label">✦ AI Suggestion</span>
           <div class="thinking hidden" id="thinking">
             <span></span><span></span><span></span>
           </div>
-          <button class="icon-btn" id="copy-ai" title="Copy">⎘</button>
+          <button class="copy-ai-btn" id="copy-ai" title="Copy suggestion">
+            📋 Copy
+          </button>
         </div>
         <div class="ai-body" id="ai-body">
           <span class="ai-placeholder">AI suggestions will appear here during the call</span>
         </div>
       </div>
 
-      <!-- Call controls -->
       <div class="call-bar">
         <button class="btn-call idle" id="btn-call">
           <span class="call-icon">📞</span>
           <span id="call-label">Start Call</span>
         </button>
-        <button class="icon-btn dim" id="btn-clear-chat" title="Clear chat">🗑</button>
+        <button class="btn-clear-chat-prominent" id="btn-clear-chat" title="Clear conversation">
+          🗑 Clear
+        </button>
       </div>
 
-      <!-- Error banner -->
       <div class="error-banner hidden" id="error-banner">
         <span id="error-text"></span>
         <button id="error-dismiss">✕</button>
@@ -110,7 +237,7 @@
 
     </div>
 
-    <!-- ── SETTINGS VIEW ─────────────────────────────────────────────────── -->
+    <!-- ── SETTINGS VIEW ── -->
     <div id="view-settings" class="view">
       <div class="settings-header">
         <button class="back-btn" id="btn-back">← Back</button>
@@ -208,5 +335,76 @@
   </div>
 
   <script src="js/app.js"></script>
+
+  <!-- Resizable AI panel -->
+  <script>
+  (function () {
+    'use strict';
+    const STORE_KEY = 'sf-ai-panel-h';
+    const DEFAULT_H = 148;
+    const MIN_H     = 38;
+    const MAX_VH    = 0.68;
+
+    const panel  = document.getElementById('ai-panel');
+    const handle = document.getElementById('ai-resize-handle');
+    if (!panel || !handle) return;
+
+    const maxH = () => Math.floor(window.innerHeight * MAX_VH);
+    const setH = h  => { panel.style.height = h + 'px'; };
+
+    let expandedH = parseInt(localStorage.getItem(STORE_KEY), 10) || DEFAULT_H;
+    setH(expandedH);
+
+    let dragging = false, startY = 0, startH = 0;
+
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      dragging = true;
+      startY   = e.clientY;
+      startH   = panel.offsetHeight;
+      handle.classList.add('dragging');
+      document.body.classList.add('ai-resizing');
+    });
+
+    document.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const delta = startY - e.clientY;
+      const newH  = Math.min(maxH(), Math.max(MIN_H, startH + delta));
+      setH(newH);
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      handle.classList.remove('dragging');
+      document.body.classList.remove('ai-resizing');
+      const finalH = panel.offsetHeight;
+      expandedH = finalH;
+      localStorage.setItem(STORE_KEY, finalH);
+    });
+
+    handle.addEventListener('touchstart', e => {
+      dragging = true;
+      startY   = e.touches[0].clientY;
+      startH   = panel.offsetHeight;
+      handle.classList.add('dragging');
+    }, { passive: true });
+
+    document.addEventListener('touchmove', e => {
+      if (!dragging) return;
+      const delta = startY - e.touches[0].clientY;
+      setH(Math.min(maxH(), Math.max(MIN_H, startH + delta)));
+    }, { passive: true });
+
+    document.addEventListener('touchend', () => {
+      if (!dragging) return;
+      dragging = false;
+      handle.classList.remove('dragging');
+      localStorage.setItem(STORE_KEY, panel.offsetHeight);
+    });
+
+  }());
+  </script>
+
 </body>
 </html>

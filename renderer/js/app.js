@@ -61,7 +61,13 @@
       const text = aiBody.innerText.trim()
       if (text && !text.includes('suggestions will appear')) {
         navigator.clipboard.writeText(text)
-        showCopyFeedback($('copy-ai'))
+        const btn = $('copy-ai')
+        btn.innerHTML = '✓ Copied!'
+        btn.classList.add('copied')
+        setTimeout(() => {
+          btn.innerHTML = '📋 Copy'
+          btn.classList.remove('copied')
+        }, 2000)
       }
     })
 
