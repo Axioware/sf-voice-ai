@@ -55,7 +55,7 @@ class AudioCaptureService extends EventEmitter {
       return {
         lead:        leadDevice,
         leadFormat:  'dshow',
-        agent:       'audio=@device_cm_{33D9A762-90C8-11D0-BD43-00A0C911CE86}\\wave_{default}',
+        agent:       'audio=Microphone (Realtek High Definition Audio)',
         agentFormat: 'dshow'
       }
 

@@ -1,0 +1,8 @@
+install VBCABLE_Setup_x64.exe and restart pc  https://vb-audio.com/Cable/
+
+https://ffmpeg.org/download.html add this in environment variable 
+
+settings - system - sounds - in output choose your output device select CABLE input(VB-Audio virtual cable)
+
+and then install SF-Voice-AI-1.0.0-windows-setup.exe
+
