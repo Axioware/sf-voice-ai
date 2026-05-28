@@ -20,7 +20,7 @@ class ClaudeService {
   // ── Get suggestion based on full conversation + lead context ────────────
   // conversation  = [{ role: 'lead'|'agent', text, time }]
   // leadContext   = formatted string from salesforce.formatLeadContext()
-  async getSuggestion({ conversation, leadContext }) {
+  async getSuggestion({ conversation, leadContext, signal }) {
     if (!this.client) {
       this._initClient(this.config.anthropicApiKey)
       if (!this.client) throw new Error('Anthropic client not initialised. Check API key in Settings.')
@@ -43,7 +43,7 @@ class ClaudeService {
       max_tokens: 150,                           // suggestions are short, no need for more
       system: this.config.systemPrompt || this._defaultSystemPrompt(),
       messages: [{ role: 'user', content: userMessage }]
-    })
+    }, { signal })                               // abort signal — cancels if a newer call starts
 
     return response.content
       .filter(b => b.type === 'text')

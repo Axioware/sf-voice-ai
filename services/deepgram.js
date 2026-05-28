@@ -40,13 +40,13 @@ class DeepgramService extends EventEmitter {
         model: 'nova-2',
         smart_format: true,
         interim_results: true,
-        utterance_end_ms: 1500,
+        utterance_end_ms: 1000,
         vad_events: true,
         encoding: 'linear16',
         sample_rate: 16000,
         channels: 1,
         punctuate: true,
-        endpointing: 600
+        endpointing: 300
       })
       socket.on('open', function() {
         clearTimeout(timeout)
@@ -66,9 +66,10 @@ class DeepgramService extends EventEmitter {
           }
         } catch (e) {}
       })
+      // UtteranceEnd fires ~1000ms after speech_final and would reset the debounce,
+      // adding ~1s of extra latency every turn. We rely solely on speech_final above.
       socket.on('UtteranceEnd', function() {
-        console.log('[Deepgram] UtteranceEnd:', channel)
-        self.emit('utterance-end', { channel: channel })
+        console.log('[Deepgram] UtteranceEnd (ignored for LLM trigger):', channel)
       })
       socket.on('error', function(err) {
         clearTimeout(timeout)

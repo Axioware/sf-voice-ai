@@ -20,8 +20,9 @@ let salesforceService = null
 let isCallActive      = false
 let conversation      = []    // [{ role: 'lead'|'agent', text, time }]
 let leadContext       = null  // formatted string from Salesforce lead lookup
-let llmDebounceTimer  = null
-const LLM_DEBOUNCE_MS = 600   // 600ms feels natural — fast but not jumpy
+let llmDebounceTimer        = null
+let currentLLMAbortController = null
+const LLM_DEBOUNCE_MS = 150   // short — speech_final already waited 300ms of silence
 
 // ── Window ────────────────────────────────────────────────────────────────────
 function createMainWindow() {
@@ -135,14 +136,22 @@ async function callLLM() {
     sendToRenderer('llm-error', 'Anthropic API key not configured. Go to Settings.')
     return
   }
+
+  // Cancel any in-flight Claude call — stale suggestions should never overwrite fresh ones
+  if (currentLLMAbortController) currentLLMAbortController.abort()
+  currentLLMAbortController = new AbortController()
+  const { signal } = currentLLMAbortController
+
   sendToRenderer('llm-thinking', true)
   try {
-    const reply = await claudeService.getSuggestion({ conversation, leadContext })
+    const reply = await claudeService.getSuggestion({ conversation, leadContext, signal })
+    if (signal.aborted) return   // a newer call already took over
     sendToRenderer('llm-reply', reply)
   } catch (err) {
+    if (signal.aborted) return   // this call was intentionally cancelled, stay silent
     sendToRenderer('llm-error', err.message)
   } finally {
-    sendToRenderer('llm-thinking', false)
+    if (!signal.aborted) sendToRenderer('llm-thinking', false)
   }
 }
 
