@@ -9,23 +9,37 @@ npm >= 9.0.0             # bundled with Node 18+
 # ── Electron (installed via npm) ─────────────────────────────────────────────
 electron >= 28.0.0       # see package.json devDependencies
 
+# ── Audio (all platforms) ───────────────────────────────────────────────────
+# Actual audio capture is done by services/audioCapture.js spawning `ffmpeg`
+# directly (pulse on Linux, dshow on Windows, avfoundation on Mac).
+# node-record-lpcm16 and wav are listed in package.json but are NOT used by
+# the app — leftover dependencies from earlier implementations.
+ffmpeg                   # required on every platform
+                         # Install: sudo apt install ffmpeg      (Linux)
+                         #      or: brew install ffmpeg           (Mac)
+                         #      or: winget install ffmpeg         (Windows)
+                         # See WINDOWS_SETUP.md for adding ffmpeg to PATH on Windows
+
 # ── Audio (Linux) ────────────────────────────────────────────────────────────
-pulseaudio               # or pipewire-pulse — required for microphone capture
-sox                      # Sound eXchange; used by node-record-lpcm16 for audio I/O
-                         # Install: sudo apt install pulseaudio sox
-                         #      or: sudo apt install pipewire-pulse sox
+pulseaudio               # or pipewire-pulse — ffmpeg captures via `-f pulse`;
+                         # `pactl` is also used to auto-detect the default
+                         # sink's monitor (lead audio) and list devices
 
 # ── Audio (macOS) ────────────────────────────────────────────────────────────
-# sox via Homebrew: brew install sox
-# No extra audio daemon needed — CoreAudio is used natively
+# BlackHole (https://github.com/ExistentialAudio/BlackHole) — free virtual
+# audio device, needed to capture the other side of the call (not just mic)
 
 # ── Audio (Windows) ──────────────────────────────────────────────────────────
-# sox for Windows: https://sourceforge.net/projects/sox/
-# Add sox to PATH after installation
+# VB-Audio Virtual Cable (https://vb-audio.com/Cable) — free virtual audio
+# device, needed to capture the other side of the call (not just mic)
 
-# ── API Keys (set in .env — copy from .env.example) ─────────────────────────
-ANTHROPIC_API_KEY        # https://console.anthropic.com
-DEEPGRAM_API_KEY         # https://console.deepgram.com
+# ── API Keys / config (set in .env — copy from .env.example) ────────────────
+ANTHROPIC_API_KEY        # required — https://console.anthropic.com
+DEEPGRAM_API_KEY         # required — https://console.deepgram.com
+SF_INSTANCE_URL          # optional — enables Salesforce lead-by-phone lookup
+SF_CLIENT_ID             # optional — Salesforce Connected App Consumer Key
+SF_CLIENT_SECRET         # optional — Salesforce Connected App Consumer Secret
+SF_REFRESH_TOKEN         # optional — OAuth 2.0 refresh token for that app
 
 # ── Quick Start ──────────────────────────────────────────────────────────────
 # 1. cp .env.example .env  (and fill in your API keys)
