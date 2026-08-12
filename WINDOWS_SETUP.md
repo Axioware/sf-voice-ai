@@ -30,9 +30,19 @@ Select: "Desktop development with C++"
 
 ```cmd
 cd sf-voice-ai
+copy .env.example .env
+:: edit .env and add your Deepgram / Anthropic (and optional Salesforce) keys
 npm install
 npm start
 ```
+
+API keys can also be entered later from the app's **Settings** screen — that's the easier path if you don't want to hand-edit `.env`.
+
+---
+
+## Salesforce lead lookup (optional)
+
+If you want the app to pull up CRM info by phone number during a call, fill in the **Salesforce — Lead Lookup** section in Settings (Instance URL, Connected App Client ID/Secret, Refresh Token) or the matching `SF_*` variables in `.env`. Full setup instructions (Connected App, refresh token, what gets fetched) are in the main [README.md](README.md#salesforce-lead-lookup). This step is optional — the app works fine on transcript-only suggestions without it.
 
 ---
 
